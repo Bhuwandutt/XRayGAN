@@ -26,7 +26,7 @@ class MIMICDataset2(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
-        csv_report = '../MIMIC/physionet.org/files/mimic-cxr/2.0.0/files/mimic_cxr_sectioned.csv'
+        csv_report = '../../MIMIC/physionet.org/files/mimic-cxr/2.0.0/files/mimic_cxr_sectioned.csv'
         self.text_csv = pd.read_csv(csv_txt)
         self.img_csv = pd.read_csv(csv_img)
         self.report_csv = pd.read_csv(csv_report)
@@ -137,7 +137,7 @@ class MIMICDataset2_Hiachy(Dataset):
             transform (callable, optional): Optional transform to be applied
                 on a sample.
         """
-        csv_report = '../MIMIC/physionet.org/files/mimic-cxr/2.0.0/files/mimic_cxr_sectioned.csv'
+        csv_report = '../../MIMIC/physionet.org/files/mimic-cxr/2.0.0/files/mimic_cxr_sectioned.csv'
         word_dict = 'hia_' + word_dict
         self.text_csv = pd.read_csv(csv_txt)
         self.img_csv = pd.read_csv(csv_img)
@@ -146,70 +146,83 @@ class MIMICDataset2_Hiachy(Dataset):
         self.transform = transform
         if os.path.exists(word_dict):
             with open(word_dict) as f:
-                self.word_to_idx, self.vocab_size, self.max_len_impression, self.max_len_finding = json.load(f)
+                self.word_to_idx, self.vocab_size, self.max_len_impression, self.max_len_finding, self.max_word_len_impression, self.max_word_len_finding = json.load(f)
         else:
-            self.word_to_idx, self.vocab_size, self.max_len_impression, self.max_len_finding = self.get_word_idx()
+            self.word_to_idx, self.vocab_size, self.max_len_impression, self.max_len_finding,self.max_word_len_impression, self.max_word_len_finding = self.get_word_idx()
             with open(word_dict,'w') as f:
-                json.dump([self.word_to_idx, self.vocab_size, self.max_len_impression, self.max_len_finding], f)
+                json.dump([self.word_to_idx, self.vocab_size, self.max_len_impression, self.max_len_finding,self.max_word_len_impression, self.max_word_len_finding], f)
+
+        self.findings = []
+        self.impression = []
+        self.image_L = []
+        self.image_F = []
+        self.subject_ids = []
+        print("Processing data.....")
+        for index, row in tqdm(self.text_csv.iterrows()):
+            subject_id = row['subject_id']
+            self.subject_ids.append(subject_id)
+            subject_report = self.report_csv[self.report_csv.study == subject_id].iloc[0]
+            raw_fi_sent, raw_im_sent = subject_report.findings.split('.'), subject_report.impression.split('.')
+            fi_sent = [normalizeSentence(s) for s in raw_fi_sent]
+            im_sent = [normalizeSentence(s) for s in raw_im_sent]
+
+            txt_finding = []
+            txt_impression = []
+
+            for sen in fi_sent:
+                # print(sen)
+                txt_finding_sen = [self.word_to_idx[w] for w in sen.split()]
+                txt_finding_sen = np.pad(txt_finding_sen, (self.max_word_len_finding - len(txt_finding_sen), 0),
+                                         'constant', constant_values=0)
+                txt_finding.append(txt_finding_sen)
+
+            for sen in im_sent:
+                txt_impression_sen = [self.word_to_idx[w] for w in sen.split()]
+                txt_impression_sen = np.pad(txt_impression_sen,
+                                            (self.max_word_len_impression - len(txt_impression_sen), 0), 'constant',
+                                            constant_values=0)
+                txt_impression.append(txt_impression_sen)
+
+            txt_impression = np.pad(np.array(txt_impression),
+                                    ((self.max_len_impression - len(txt_impression), 0), (0, 0)), 'constant',
+                                    constant_values=0)
+            txt_finding = np.pad(np.array(txt_finding), ((self.max_len_finding - len(txt_finding), 0), (0, 0)),
+                                 'constant', constant_values=0)
+
+            self.impression.append(txt_impression)
+            self.findings.append(txt_finding)
+            # Find the matching image for this report
+            subject_imgs = self.img_csv[self.img_csv.subject_id == subject_id]
+
+            img_name_L = subject_imgs[subject_imgs.direction == 'L'].iloc[0]['path']
+            # For png data, load data and normalize
+            self.image_L.append(img_name_L)
+
+            # Find the matching image for this report
+            img_name_F = subject_imgs[subject_imgs.direction == 'F'].iloc[0]['path']
+            self.image_F.append(img_name_F)
     def __len__(self):
         return len(self.text_csv)
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        subject_id = self.text_csv.iloc[idx].subject_id
-        subject_report = self.report_csv[self.report_csv.study == subject_id].iloc[0]
-        # Split report by sentences
-        raw_fi_sent, raw_im_sent = subject_report.findings.split('.'), subject_report.impression.split('.')
-        fi_sent = [normalizeSentence(s) for s in raw_fi_sent]
-        im_sent = [normalizeSentence(s) for s in raw_im_sent]
-
-        txt_finding = []
-        txt_impression = []
-
-        for sen in fi_sent:
-            # print(sen)
-            txt_finding_sen = [self.word_to_idx[w] for w in sen.split()]
-            txt_finding_sen = np.pad(txt_finding_sen, (self.max_word_len_finding - len(txt_finding_sen), 0),
-                                     'constant', constant_values=0)
-            txt_finding.append(txt_finding_sen)
-
-        for sen in im_sent:
-            txt_impression_sen = [self.word_to_idx[w] for w in sen.split()]
-            txt_impression_sen = np.pad(txt_impression_sen,
-                                        (self.max_word_len_impression - len(txt_impression_sen), 0), 'constant',
-                                        constant_values=0)
-            txt_impression.append(txt_impression_sen)
-
-        txt_impression = np.pad(np.array(txt_impression),
-                                ((self.max_len_impression - len(txt_impression), 0), (0, 0)), 'constant',
-                                constant_values=0)
-        txt_finding = np.pad(np.array(txt_finding), ((self.max_len_finding - len(txt_finding), 0), (0, 0)),
-                             'constant', constant_values=0)
-
-        # Find the matching image for this report
-        subject_imgs = self.img_csv[self.img_csv.subject_id == subject_id]
-
-        img_name_L = subject_imgs[subject_imgs.direction == 'L'].iloc[0]['path']
         # For png data, load data and normalize
-        chest_img_L = np.array(read_png(img_name_L))
-
-        # Find the matching image for this report
-        img_name_F = subject_imgs[subject_imgs.direction == 'F'].iloc[0]['path']
-        # For png data, load data and normalize
-
+        img_name_F = os.path.join('../', self.image_F[idx])
+        img_name_L = os.path.join('../', self.image_L[idx])
         chest_img_F = np.array(read_png(img_name_F))
+        chest_img_L = np.array(read_png(img_name_L))
 
         if self.transform:
             chest_img_F = self.transform(chest_img_F)
             chest_img_L = self.transform(chest_img_L)
 
         sample = {
-            'subject_id': torch.tensor(subject_id,dtype=torch.long),
-            'finding': torch.tensor(txt_finding,dtype=torch.long),
-            'impression': torch.tensor(txt_impression,dtype=torch.long),
-            'image_F': torch.tensor(chest_img_F,dtype=torch.float),
-            'image_L': torch.tensor(chest_img_L,dtype=torch.float)
+            'subject_id': torch.tensor(self.subject_ids[idx], dtype=torch.long),
+            'finding': torch.tensor(self.findings[idx], dtype=torch.long),
+            'impression': torch.tensor(self.impression[idx], dtype=torch.long),
+            'image_F': torch.tensor(chest_img_F, dtype=torch.float),
+            'image_L': torch.tensor(chest_img_L, dtype=torch.float)
         }
         return sample
 
@@ -218,18 +231,28 @@ class MIMICDataset2_Hiachy(Dataset):
         wordbag = []
         sen_len_finding = []
         sen_len_impression = []
+        word_len_finding = []
+        word_len_impression = []
         for idx in tqdm(range(self.__len__())):
             subject_id = self.text_csv.iloc[idx].subject_id
             subject_report = self.report_csv[self.report_csv.study==subject_id].iloc[0]
-            raw_fi, raw_im =subject_report.findings.split(),subject_report.impression.split()
-            fi = [normalizeString(s) for s in raw_fi]
-            im = [normalizeString(s) for s in raw_im]
-            sen_len_finding.append(len(fi))
-            sen_len_impression.append(len(im))
-            wordbag = wordbag + fi + im
+            raw_fi, raw_im =subject_report.findings.split('.'),subject_report.impression.split('.')
+            fi_sent = [normalizeSentence(s) for s in raw_fi]
+            im_sent = [normalizeSentence(s) for s in raw_im]
+            sen_len_finding.append(len(fi_sent))
+            sen_len_impression.append(len(im_sent))
+            for sen in fi_sent:
+                sen = [s for s in sen.split()]
+                word_len_finding.append(len(sen))
+                wordbag += sen
+            for sen in im_sent:
+                sen = [s for s in sen.split()]
+                word_len_impression.append(len(sen))
+                wordbag += sen
+
         vocab = set(wordbag)
         word_to_idx = {}
-        count = 0
+        count = 1
         for i, word in enumerate(vocab):
             if word in word_to_idx.keys():
                 pass
@@ -237,12 +260,13 @@ class MIMICDataset2_Hiachy(Dataset):
                 word_to_idx[word] = count
                 count += 1
         vocab_len = count + 1
-        max_len_im,max_len_fi = max(sen_len_impression), max(sen_len_finding)
+        max_len_im, max_len_fi = max(sen_len_impression), max(sen_len_finding)
+        max_word_len_im, max_word_len_fi = max(word_len_impression), max(word_len_finding)
         print("Totally {} medical report".format(self.__len__()))
         print("Totally {} vocabulary".format(vocab_len))
-        print("Max Finding length {}".format(max_len_fi))
-        print("Max Impression length {}".format(max_len_im))
-        return word_to_idx, vocab_len, max_len_im,max_len_fi
+        print("Max Finding: sent length {} \t word lenth {}".format(max_len_fi, max_word_len_fi))
+        print("Max Impression: length {} \t word lenth {}".format(max_len_im, max_word_len_im))
+        return word_to_idx, vocab_len, max_len_im, max_len_fi, max_word_len_im, max_word_len_fi
 
 class MIMICDataset_Siamese(Dataset):
     """Text-to-image dataset"""
@@ -263,26 +287,30 @@ class MIMICDataset_Siamese(Dataset):
         self.img_csv = pd.read_csv(csv_img)
         self.root = root
         self.transform = transform
+        self.image_L = []
+        self.image_F = []
+        print("Processing data.....")
+        for index, row in tqdm(self.text_csv.iterrows()):
+            subject_id = self.text_csv.iloc[index]['subject_id']
+            # Find the matching image for this report
+            subject_imgs = self.img_csv[self.img_csv.subject_id == subject_id]
 
+            img_name_L = subject_imgs[subject_imgs.direction == 'L'].iloc[0]['path']
+            # For png data, load data and normalize
+            self.image_L.append(img_name_L)
+
+            # Find the matching image for this report
+            img_name_F = subject_imgs[subject_imgs.direction == 'F'].iloc[0]['path']
+            # For png data, load data and normalize
+
+            self.image_F.append(img_name_F)
     def __len__(self):
         return len(self.text_csv)
 
     def get_one_data(self,idx):
 
-        subject_id = self.text_csv.iloc[idx]['subject_id']
-
-        # Find the matching image for this report
-        subject_imgs = self.img_csv[self.img_csv.subject_id == subject_id]
-
-        img_name_L = subject_imgs[subject_imgs.direction == 'L'].iloc[0]['path']
-        # For png data, load data and normalize
-        chest_img_L = np.array(read_png(img_name_L))
-
-        # Find the matching image for this report
-        img_name_F = subject_imgs[subject_imgs.direction == 'F'].iloc[0]['path']
-        # For png data, load data and normalize
-
-        chest_img_F = np.array(read_png(img_name_F))
+        chest_img_L = np.array(read_png(os.path.join('../',self.image_L[idx])))
+        chest_img_F = np.array(read_png(os.path.join('../',self.image_F[idx])))
         if self.transform:
             chest_img_F = self.transform(chest_img_F)
             chest_img_L = self.transform(chest_img_L)

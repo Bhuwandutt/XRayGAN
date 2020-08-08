@@ -23,6 +23,8 @@ class Trainer:
     def __init__(self):
         self.cfg_json = "config/MIMIC_XrayGAN.json"
         self.cfg = self.pare_cfg(self.cfg_json)
+        for key,value in self.cfg.items():
+            print(key, value)
         self.exp_name = self.cfg["EXPER_NAME"]
         self.max_epoch = self.cfg["MAX_EPOCH"]
         self.S_max_epoch = self.cfg["SIAMESE_EPOCH"]
@@ -540,7 +542,7 @@ class Trainer:
 
         # self.load_model()
 
-        for layer_id in range(3,self.P_ratio+1):
+        for layer_id in range(self.P_ratio+1):
 
             self.define_D(layer_id)
             self.define_dataloader(layer_id)

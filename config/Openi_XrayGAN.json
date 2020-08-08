@@ -22,7 +22,7 @@
   "CHECKPOINT_ENCODER": "./checkpoint/OPENI/XRayGAN/encoder",
   "CHECKPOINT_DECODER": "./checkpoint/OPENI/XRayGAN/decoder",
   "CHECKPOINT_D": "./checkpoint/OPENI/XRayGAN/D",
-  "DATA_ROOT": "../data",
+  "DATA_ROOT": "../",
   "TEXT_CSV": "./datasplit/openi_reports.csv",
   "IMG_CSV": "./datasplit/openi_images.csv",
 

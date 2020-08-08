@@ -12,12 +12,12 @@ import os
 import random
 import json
 
-Not_list = ['not','no','none','non']
-syno_f = open('./utils/syno_dict.json')
-syno_dict = json.load(syno_f)
-
-anto_f = open('./utils/anto_dict.json')
-anto_dict = json.load(anto_f)
+# Not_list = ['not','no','none','non']
+# syno_f = open('./utils/syno_dict.json')
+# syno_dict = json.load(syno_f)
+#
+# anto_f = open('./utils/anto_dict.json')
+# anto_dict = json.load(anto_f)
 
 def read_png(file_name):
     '''Read Png image'''
