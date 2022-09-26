@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig authType="PASSWORD" connectionConfig="{&quot;serverAliveInterval&quot;:300}" host="dsmlp-login.ucsd.edu" id="9bb54702-07cd-43b0-9903-4ed2aa7430e8" port="22" customName="school" nameFormat="CUSTOM" useOpenSSHConfig="true">
+        <option name="customName" value="school" />
+      </sshConfig>
+    </configs>
+  </component>
+</project>

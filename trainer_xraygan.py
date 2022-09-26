@@ -1,25 +1,29 @@
-import torch
 import json
-from models.Encoder import HAttnEncoder
-from models.Decoder import baseDecoder,PDecoderv2,baseDecoderv2,PDecoder,baseDecoderv3,MultiscaleDecoder,PDecoderv3
-from models.Discriminator import SNDiscriminator, baseDiscriminator, noCon_Discriminator, PatchDiscriminator, ResDiscriminator, PDiscriminator
-from models.tools import cal_gradient_penalty,init_weights
-from torch import nn
-from torch.nn.modules.distance import PairwiseDistance
-from utils.MIMICDataSet import MIMICDataset2_Hiachy, MIMICDataset_Siamese
-from utils.OpeniDataSet import OpeniDataset2_Hiachy,OpeniDataset_Siamese,OpeniDataset2
-from torch.utils.data import DataLoader,random_split
-from torchvision import transforms
-from utils import get_time,matplotlib_imshow,deNorm, Rescale,ToTensor,Equalize
-from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
-from models.Siamese import EmbeddingNet,Classifinet
 import os
 import numpy as np
+import torch
 import torch.nn.functional as F
-from torch.optim.lr_scheduler import MultiStepLR,StepLR
+from torch import nn
+from torch.optim.lr_scheduler import MultiStepLR, StepLR
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms
+from tqdm import tqdm
+
+from models.Decoder import baseDecoder, PDecoderv2, baseDecoderv2, PDecoder, baseDecoderv3, MultiscaleDecoder, \
+    PDecoderv3
+from models.Discriminator import SNDiscriminator, baseDiscriminator, noCon_Discriminator, PatchDiscriminator, \
+    ResDiscriminator, PDiscriminator
+from models.Encoder import HAttnEncoder
+from models.Siamese import Classifinet
+from models.tools import cal_gradient_penalty
+from utils import get_time, deNorm, Rescale, ToTensor, Equalize
+from utils.MIMICDataSet import MIMICDataset2_Hiachy, MIMICDataset_Siamese
+from utils.OpeniDataSet import OpeniDataset2_Hiachy, OpeniDataset_Siamese
+
 
 class Trainer:
+
     def __init__(self):
         self.cfg_json = "config/MIMIC_XrayGAN.json"
         self.cfg = self.pare_cfg(self.cfg_json)
@@ -62,30 +66,30 @@ class Trainer:
         self.lambda_gp = [10.0,10.0,10.0,10.0]
         self.writer = SummaryWriter(os.path.join("runs",self.exp_name))
 
-        self.ENCODERS= {
+        self.ENCODERS = {
             "HAttnEncoder": HAttnEncoder
         }
         self.DECODERS = {
-            "baseDECODER":baseDecoder,
+            "baseDECODER": baseDecoder,
             "baseDECODERv2": baseDecoderv2,
             "baseDECODERv3": baseDecoderv3,
         }
         self.P_DECODER = {
-            "PDECODER":PDecoder,
-            "PDECODERv2":PDecoderv2,
+            "PDECODER": PDecoder,
+            "PDECODERv2": PDecoderv2,
             "PDECODERv3": PDecoderv3
         }
         self.DISCRIMINATOR = {
             "baseDISCRIMINATOR": baseDiscriminator,
             "noconDISCRIMINATOR": noCon_Discriminator,
             "Patch": PatchDiscriminator,
-            "SNDiscriminator":SNDiscriminator,
+            "SNDiscriminator": SNDiscriminator,
             "ResDISCRIMINATOR": ResDiscriminator,
-            "PDISCRIMINATOR":PDiscriminator
+            "PDISCRIMINATOR": PDiscriminator
         }
         self.dataset = {
-            "OPENI":[OpeniDataset2_Hiachy,OpeniDataset_Siamese],
-            "MIMIC-CXR":[MIMICDataset2_Hiachy, MIMICDataset_Siamese]
+            "OPENI": [OpeniDataset2_Hiachy,OpeniDataset_Siamese],
+            "MIMIC-CXR": [MIMICDataset2_Hiachy, MIMICDataset_Siamese]
         }
 
 
@@ -156,10 +160,11 @@ class Trainer:
         print("Number of Discriminator", self.P_ratio + 1)
 
         self.define_nets()
-        self.encoder = nn.DataParallel(self.encoder,device_ids=self.gpus)
-        self.decoder_L = nn.DataParallel(self.decoder_L,device_ids=self.gpus)
-        self.decoder_F = nn.DataParallel(self.decoder_F, device_ids=self.gpus)
-        self.embednet = nn.DataParallel(self.embednet, device_ids=self.gpus)
+        self.encoder = nn.DistributeDataParallel(self.encoder, device_ids=self.gpus)
+        # DataParallel Splits the input across gpu devices .
+        self.decoder_L = nn.DistributedDataParallel(self.decoder_L, device_ids=self.gpus)
+        self.decoder_F = nn.DistributedDataParallel(self.decoder_F, device_ids=self.gpus)
+        self.embednet = nn.DistibutedDataParallel(self.embednet, device_ids=self.gpus)
         self.load_model()
 
     def define_nets(self):
@@ -205,7 +210,6 @@ class Trainer:
 
         self.embednet = Classifinet(backbone='resnet18').to(self.device)
 
-
     def define_dataloader(self,layer_id):
 
         self.train_dataloader = DataLoader(self.trainset,
@@ -225,7 +229,7 @@ class Trainer:
                                        pin_memory=True,
                                        drop_last=False)
 
-    def define_opt(self,layer_id):
+    def define_opt(self, layer_id):
         '''Define optimizer'''
         self.G_optimizer = torch.optim.Adam([{'params': self.encoder.parameters()}] +
                                             [{'params': self.decoder_F.parameters()}] +
@@ -241,7 +245,6 @@ class Trainer:
         self.D_lr_scheduler = MultiStepLR(self.D_optimizer, milestones=self.cfg["LR_DECAY_EPOCH"][layer_id], gamma=0.2)
         self.S_optimizer = torch.optim.Adam(self.embednet.parameters(), lr=self.cfg["S_LR"], betas=(self.beta1, 0.999))
         self.S_lr_scheduler = StepLR(self.S_optimizer, step_size=self.cfg["LR_SIAMESE_DECAY_EPOCH"], gamma=0.2)
-
 
     def check_create_checkpoint(self):
         '''Check for the checkpoint path exists or not
@@ -273,9 +276,7 @@ class Trainer:
         else:
             print("checkpoint do not exists {}".format(self.decoder_resume_L))
 
-
-
-    def define_D(self,layer_id):
+    def define_D(self, layer_id):
         '''Initialize a series of Discriminator'''
 
         dr = self.base_ratio - 2 + layer_id
@@ -291,11 +292,11 @@ class Trainer:
             self.D_F = nn.DataParallel(self.D_F,device_ids=self.gpus)
             self.D_L = nn.DataParallel(self.D_L,device_ids=self.gpus)
 
-    def get_lr(self,optimizer):
+    def get_lr(self, optimizer):
         for param_group in optimizer.param_groups:
             return param_group['lr']
 
-    def Loss_on_layer(self,image, finding, impression,layer_id,decoder):
+    def Loss_on_layer(self, image, finding, impression,layer_id,decoder):
         '''
         Pretrain genertaor with batch
         :image image batch
@@ -310,10 +311,9 @@ class Trainer:
         loss = self.G_criterion(pre_image.float(), r_image.float())
         loss.backward()
         self.G_optimizer.step()
-        return loss,pre_image,r_image
+        return loss, pre_image,r_image
 
-
-    def train_Siamese_layer(self,layer_id):
+    def train_Siamese_layer(self, layer_id): ## Step 1 in training
         DISP_FREQ = self.DISP_FREQs[layer_id]
 
         for epoch in range(self.S_max_epoch[layer_id]):
@@ -324,10 +324,11 @@ class Trainer:
                 image_l = batch['image_L'].to(self.device)
                 label = batch['label'].to(self.device)
 
-                r_image_f = F.interpolate(image_f, size=(2 ** layer_id) * self.base_size)
+                r_image_f = F.interpolate(image_f, size=(2 ** layer_id) * self.base_size) # Down/up samples the input
+                # to either the given size or the given scale_factor
                 r_image_l = F.interpolate(image_l, size=(2 ** layer_id) * self.base_size)
 
-                self.S_optimizer.zero_grad()
+                self.S_optimizer.zero_grad()  # Clear the gradients attached to tenors.
                 pred = self.embednet(r_image_f, r_image_l)
                 loss = self.S_criterion(pred, label)
                 loss.backward()
@@ -354,15 +355,16 @@ class Trainer:
                 image_f = batch['image_F'].to(self.device)
                 image_l = batch['image_L'].to(self.device)
                 label = batch['label'].to(self.device)
-                r_image_f = F.interpolate(image_f, size=(2 ** layer_id) * self.base_size)
+                r_image_f = F.interpolate(image_f, size=(2 ** layer_id) * self.base_size) #Change the input size
+                ## to given size
                 r_image_l = F.interpolate(image_l, size=(2 ** layer_id) * self.base_size)
 
                 pred = self.embednet(r_image_f, r_image_l)
-                pred[pred>0.5]=1
-                pred[pred<=0.5]=0
+                pred[pred > 0.5] = 1
+                pred[pred <= 0.5] = 0
 
                 total += pred.shape[0]
-                correct += torch.sum(pred==label).item()
+                correct += torch.sum(pred == label).item()
 
             acc = correct / total
             # acc = self.evaluate_Siamese(layer_id)
@@ -372,7 +374,7 @@ class Trainer:
                                    acc,
                                    epoch)
 
-    def Loss_on_layer_GAN(self,image,finding, impression,layer_id,decoder,D):
+    def Loss_on_layer_GAN(self, image, finding, impression,layer_id,decoder,D):
         '''
         Pretrain genertaor with batch
         :image image batch
@@ -396,7 +398,7 @@ class Trainer:
             self.D_optimizer.step()
 
         # Train Generator
-        for _ in  range(self.G_step):
+        for _ in range(self.G_step):
             self.G_optimizer.zero_grad()
 
             pre_fake = D(pre_image, txt_emded)
@@ -414,8 +416,8 @@ class Trainer:
 
         return D_loss, G_loss, pre_image, image
 
+    def train_layer(self, layer_id):
 
-    def train_layer(self,layer_id):
         DISP_FREQ = self.DISP_FREQs[layer_id]
         for epoch in range(20):
             print('Generator Epoch [{}/20]'.format(epoch))
@@ -430,7 +432,6 @@ class Trainer:
 
                 loss_f, pre_image_f, r_image_f = self.Loss_on_layer(image_f, finding, impression, layer_id, self.decoder_F)
                 loss_l, pre_image_l, r_image_l = self.Loss_on_layer(image_l,  finding, impression, layer_id, self.decoder_L)
-
 
                 # print('Loss: {:.4f}'.format(loss.item()))
                 if ((idx + 1) % DISP_FREQ == 0) and idx != 0:
@@ -536,8 +537,6 @@ class Trainer:
                                                                      "Decoder_{}_L_Layer_{}_Time_{}_checkpoint.pth".format(
                                                                          self.cfg["DECODER"], layer_id, get_time())))
 
-
-
     def train(self):
 
         # self.load_model()
@@ -569,18 +568,18 @@ class Trainer:
             self.train_GAN_layer(layer_id)
 
 
-
-
-    def pare_cfg(self,cfg_json):
+    def pare_cfg(self, cfg_json):
         with open(cfg_json) as f:
             cfg = f.read()
             print(cfg)
             print("Config Loaded")
         return json.loads(cfg)
 
+
 def main():
     trainer = Trainer()
     trainer.train()
+
 
 if __name__ == "__main__":
     main()

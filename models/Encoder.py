@@ -1,6 +1,7 @@
+import torch
 from torch import nn
 from torch.nn.utils.rnn import pack_padded_sequence,pad_packed_sequence
-import torch
+
 from models.HALSTM import AttentionWordRNN,AttentionSentRNN,AttentionSentRNNv2,AttentionWordRNNv2
 
 
@@ -134,9 +135,9 @@ class HAttnEncoder(nn.Module):
         batch,sent_len,word_num = x.shape
 
         x = x.view(batch*sent_len, -1)
-        word_embed, state_word, _ = self.word_RNN1(x)
-        all_word_embed = word_embed.view(batch, sent_len, -1)
-        sent_embed, state_sent, _ = self.setence_RNN1(all_word_embed)
+        word_embed, state_word, _ = self.word_RNN1(x) # Get word embeddings
+        all_word_embed = word_embed.view(batch, sent_len, -1) # Reshape
+        sent_embed, state_sent, _ = self.setence_RNN1(all_word_embed) # Sentece embeddings
         return sent_embed
 
     def forward_once2(self,x,state_word=None):
