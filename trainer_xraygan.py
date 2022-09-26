@@ -25,7 +25,7 @@ from utils.OpeniDataSet import OpeniDataset2_Hiachy, OpeniDataset_Siamese
 class Trainer:
 
     def __init__(self):
-        self.cfg_json = "config/MIMIC_XrayGAN.json"
+        self.cfg_json = "config/Openi_XrayGAN.json"
         self.cfg = self.pare_cfg(self.cfg_json)
         for key,value in self.cfg.items():
             print(key, value)
@@ -88,7 +88,7 @@ class Trainer:
             "PDISCRIMINATOR": PDiscriminator
         }
         self.dataset = {
-            "OPENI": [OpeniDataset2_Hiachy,OpeniDataset_Siamese],
+            "OPENI": [OpeniDataset2_Hiachy, OpeniDataset_Siamese],
             "MIMIC-CXR": [MIMICDataset2_Hiachy, MIMICDataset_Siamese]
         }
 
@@ -135,7 +135,7 @@ class Trainer:
                                                                     ToTensor()
                                                                 ]))
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("mps")
 
         s_gpus = self.cfg["GPU_ID"].split(',')
         self.gpus = [int(ix) for ix in s_gpus]
@@ -160,11 +160,11 @@ class Trainer:
         print("Number of Discriminator", self.P_ratio + 1)
 
         self.define_nets()
-        self.encoder = nn.DistributeDataParallel(self.encoder, device_ids=self.gpus)
+        self.encoder = nn.DataParallel(self.encoder, device_ids=self.gpus)
         # DataParallel Splits the input across gpu devices .
-        self.decoder_L = nn.DistributedDataParallel(self.decoder_L, device_ids=self.gpus)
-        self.decoder_F = nn.DistributedDataParallel(self.decoder_F, device_ids=self.gpus)
-        self.embednet = nn.DistibutedDataParallel(self.embednet, device_ids=self.gpus)
+        self.decoder_L = nn.DataParallel(self.decoder_L, device_ids=self.gpus)
+        self.decoder_F = nn.DataParallel(self.decoder_F, device_ids=self.gpus)
+        self.embednet = nn.parallel.DataParallel(self.embednet, device_ids=self.gpus)
         self.load_model()
 
     def define_nets(self):
@@ -390,7 +390,7 @@ class Trainer:
             self.D_optimizer.zero_grad()
             pre_fake = D(pre_image, txt_emded)
             pre_real = D(image, txt_emded)
-            gradient_penalty, gradients = cal_gradient_penalty(D, image, pre_image, txt_emded, "cuda",lambda_gp=self.lambda_gp[layer_id])
+            gradient_penalty, gradients = cal_gradient_penalty(D, image, pre_image, txt_emded, "mps", lambda_gp=self.lambda_gp[layer_id])
 
             D_loss = pre_fake.mean() - pre_real.mean() + gradient_penalty
             D_loss.backward(retain_graph=True)
